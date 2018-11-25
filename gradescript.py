@@ -1,12 +1,13 @@
 """Welcome to the quick marking script
-Authored by Jacob Stringer"""
-
+Authored by Jacob Stringer
+Call with 'python {filename}' to get further usage information"""
 
 import os.path, os, re, sys, zipfile, io
 
 # Global variables
 sep = ';'
 
+# Script functions
 def create_file():
     stp = re.compile(r'\w+ \w+_\d+_assignsubmission_file_')
     with open('grades.csv', 'w') as f:
@@ -61,7 +62,11 @@ def extract_nested_zip(zippedFile = "", toFolder="."):
                     extract_nested_zip(fileSpec, root)
     except Exception as e:
         print(e)
-                
+        
+        
+def print_to_pdf(data):
+    
+    
       
 def grade():
     gradefile = open('grades.csv', 'r').readlines()
