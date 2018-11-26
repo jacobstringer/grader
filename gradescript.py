@@ -63,9 +63,27 @@ def extract_nested_zip(zippedFile = "", toFolder="."):
     except Exception as e:
         print(e)
         
+
+# Uses LaTeX for formatting, and then converts to PDF. Finally, deletes LaTeX file.
+def print_to_pdf(outname, data):
+    with open(outname, 'w') as out:
+        # Preamble
+        out.write(r"\documentclass{article}\n")
+        out.write(r"\title{" + data[0] + "}\n")
+        out.write(r"\author{" + data[1] + "}\n")
+
+        # Document
+        out.write(r"\begin{document}\n")
+        out.write(r"\maketitle\n")
+        for line in data[2:]:
+            out.write(f"{line}\n")
+        out.write(r"\end{document}\n")
+
+        # Convert to PDF
+        os.system(f"pdflatex {outname}")
         
-def print_to_pdf(data):
-    
+    # Delete LaTeX file
+    os.remove(outname)
     
       
 def grade():
