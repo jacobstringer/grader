@@ -2,15 +2,18 @@
 Authored by Jacob Stringer
 Call with 'python {filename}' to get further usage information"""
 
+# Version 0.1.1
+
 import os.path, os, re, sys, zipfile, io
 
 # Global variables
 sep = ';'
+extracted = []
 
 # Script functions
-def create_file():
+def create_file(dir):
     stp = re.compile(r'\w+ \w+_\d+_assignsubmission_file_')
-    with open('grades.csv', 'w') as f:
+    with open(f'{dir}/grades.csv', 'w') as f:
         f.write(f"sep={sep}\n")
         marks = []
         
@@ -32,7 +35,7 @@ def create_file():
         f.write("\n")
         
         # Adds in student names
-        for a in next(os.walk('.'))[1]:
+        for a in next(os.walk(dir))[1]:
             print(a)
             student = stp.findall(a)
             if student:
@@ -40,26 +43,31 @@ def create_file():
                 f.write("\n")
             
             
-def extract_nested_zip(zippedFile = "", toFolder="."):
+def extract_nested_zip(toFolder, zippedFile = ""):
+    global extracted
+    print("Reached: ", toFolder)
     # Finds first zip file in folder, if none is specified
     if not zippedFile:
-        for file in next(os.walk('.'))[2]:
-            if re.search(r'\.zip$', file):
+        for file in next(os.walk(toFolder))[2]:
+            if re.search(r'\.(zip|rar)$', file) and file not in extracted:
                 zippedFile = file
                 break
     
     if zippedFile == "": return
-    
+    print("ZippedFile: ", zippedFile)
+    total = os.path.join(toFolder, zippedFile)
+	
     # Unzips file, checks for other files to unzip and makes a recursive call. Deletes original zip file.
     try:
-        with zipfile.ZipFile(zippedFile, 'r') as zfile:
+        with zipfile.ZipFile(total, 'r') as zfile:
             zfile.extractall(path=toFolder)
-        os.remove(zippedFile)
+            extracted.append(zippedFile)
+        # os.remove(os.path.join(toFolder, zippedFile))
         for root, dirs, files in os.walk(toFolder):
             for filename in files:
-                if re.search(r'\.(zip|rar)$', filename):
-                    fileSpec = os.path.join(root, filename)
-                    extract_nested_zip(fileSpec, root)
+                if re.search(r'\.(zip|rar)$', filename) and filename not in extracted:
+                    #fileSpec = os.path.join(root, filename)
+                    extract_nested_zip(root, filename)
     except Exception as e:
         print(e)
         
@@ -86,14 +94,14 @@ def print_to_pdf(outname, data):
     os.remove(outname)
     
       
-def grade():
-    gradefile = open('grades.csv', 'r').readlines()
+def grade(dir):
+    gradefile = open(f'{dir}/grades.csv', 'r').readlines()
     
     # Harvest titles and marks
-    Titles = list(map(strip, gradefile[0].split(sep)))
+    Titles = list(map(str.strip, gradefile[0].split(sep)))
     fullmarks = []
     for mark in gradefile[1].split(sep):
-        if re.search(r'Mark:\s*\d+', mark, flag="i"):
+        if re.search(r'Mark:\s*\d+', mark, re.I):
             fullmarks.append(int(mark.split("Mark:")[1]))
     lateind = Titles.index("Days Late")
     generalind = Titles.index("General Comment")
@@ -107,21 +115,22 @@ def grade():
     percentile20 = topmark/5
 
     # Make marks folder for files. On later runs, any old files are cleaned up first.
-    if not os.path.exists("./_marks"):
-        os.mkdir("./_marks")
+    if not os.path.exists(f"{dir}/_marks"):
+        os.mkdir(f"{dir}/_marks")
     else:
-        for file in next(os.walk("./marks"))[2]:
+        for file in next(os.walk(f"{dir}/_marks"))[2]:
             os.remove(file)
 
     # Process marks
     for line in gradefile[2:]:
-        line = list(map(strip, line.split(sep)))
+        line = list(map(str.strip, line.split(sep)))
+        print(line)
         name = line[0]
 
         marks = 0
         msg = []
         msg.append(Titles[0]) # Paper name and assignment name
-        msg.append(first.split("_")[0] + "\n") # First and last name of student
+        msg.append(name.split("_")[0] + "\n") # First and last name of student
         
         # Process student marks
         for i in range(1, lateind):
@@ -134,15 +143,15 @@ def grade():
                 msg.append(line[i] + "\n")
 
         # Late, General Comments and Marks
-        marks = max(0, marks - (topmark * int(line[i]) * int(gradefile[1][i]) / 100))
-        msg.append(f'\nDue to being {line[lateind]} days late, a {int(line[lateind]) * int(gradefile[1][lateind])}% penalty has been applied.')
+        marks = max(0, marks - int(line[lateind]) * int(gradefile[1][lateind]))
+        msg.append(f'\nDue to being {line[lateind]} days late, a {int(line[lateind]) * int(gradefile[1][lateind])}% point penalty has been applied.')
         msg.append(f'\n{Titles[generalind]}: {line[generalind]}')
         
         marks = round(marks,1)
         msg.append(f'\nTotal mark: {marks}/{fullmarks}')
         
         # Create feedback file
-        with open(f'_marks/{line[0]}{line[0].split("_")[0]}_{marks}.txt', 'w') as out:
+        with open(f'{dir}/_marks/{line[0]}{line[0].split("_")[0]}_{marks}.txt', 'w') as out:
             msg = [i + "\n" for i in msg]
             out.writelines(msg)
         
@@ -154,8 +163,8 @@ def grade():
             nstudentsabove20percent += 1
     
     # Zip feedback files
-    with zipfile.ZipFile('marks.zip', 'w') as zipout:
-        for file in next(os.walk("./_marks"))[2]:
+    with zipfile.ZipFile(f'{dir}/marks.zip', 'w') as zipout:
+        for file in next(os.walk(f"{dir}/_marks"))[2]:
             zipout.write(file)
     
     print("Average mark: ", cumscore/nstudents)
@@ -164,6 +173,18 @@ def grade():
     
 def help():
     print("""  
+UNZIP - Recursively unzips all .zip files within the listed folder (or in the current dir)
+python gradescript.py unzip <dir with zip file(s)>
+
+CREATE - Creates file to start grading
+python gradescript.py create <dir with unzipped student submissions>
+
+GRADE
+python gradescript.py grade <dir with grades.csv>
+""")
+
+
+"""
 Welcome to the quick marking script! This script does all the grunt work for you, so you can focus on giving great feedback. It will unzip files, create a grading csv and then, when you are ready, it will create student feedback files and zip them up for quick upload on stream.
 
 What you need to do for it to run:
@@ -183,18 +204,23 @@ Mark: #         (anything)
 2               This is a comment about this section.
 
 
-GRADE
-python gradescript.py grade
+
 
 This takes all the information you have added into your csv and creates feedback text files in the _marks folder. It also zips the feedback files to marks.zip, which can be uploaded to stream. The feedback files include their names and marks, so that when using the quick mark function, you can quickly enter in marks.
-    """)
+"""
                 
 
 if __name__ == "__main__":
-    if not len(sys.argv) > 1 or sys.argv[1].lower() not in ["create", "grade"]:
-        help()
-    elif sys.argv[1].lower() == "create":
-        extract_nested_zip(zipfilename)
-        create_file()
-    else:
-        grade()
+	if len(sys.argv) > 2:
+		dir = sys.argv[2]
+	else:
+		dir = "."
+		
+	if not len(sys.argv) > 1 or sys.argv[1].lower() not in ["unzip", "create", "grade"]:
+		help()
+	elif sys.argv[1].lower() == "unzip":
+		extract_nested_zip(dir)
+	elif sys.argv[1].lower() == "create":
+		create_file(dir)
+	else:
+		grade(dir)
