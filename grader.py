@@ -57,14 +57,13 @@ def extract_nested_zip(folder):
                 try:
                     with zipfile.ZipFile(path, 'r') as zfile:
                         zfile.extractall(path=subfolder)
-                except Exception as e:
-                    print(e)
-                finally:
                     if firstExtracted:
                         os.remove(os.path.join(root, file))
                     else:
                         firstExtracted = file  # Do not remove the original zip file
                     return extract_nested_zip(root)  # In order to recursively unzip files, must restart os.walk
+                except Exception as e:
+                    print(e)
 
 
 # Uses LaTeX for formatting, and then converts to PDF. Finally, deletes LaTeX file.
