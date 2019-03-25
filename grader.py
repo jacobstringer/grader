@@ -9,6 +9,8 @@ import os.path, os, re, sys, zipfile, io, rarfile, unrar
 # Global variables
 sep = ';'
 firstExtracted = None
+ignore = []
+filesUnzipped = 0
 
 
 # Script functions
@@ -48,21 +50,26 @@ def create_file(dir):
 
 
 def extract_nested_zip(folder):
-    global firstExtracted
+    global filesUnzipped, firstExtracted, ignore
     for root, dirs, files in os.walk(folder):
         for file in files:
             subfolder = os.path.join(root, file[:-4])
             path = os.path.join(root, file)
-            if file.endswith(".zip") and file != firstExtracted:
+
+            if file.endswith(".zip") and file not in ignore:
                 try:
                     with zipfile.ZipFile(path, 'r') as zfile:
                         zfile.extractall(path=subfolder)
+                        filesUnzipped += 1
                     if firstExtracted:
                         os.remove(os.path.join(root, file))
                     else:
-                        firstExtracted = file  # Do not remove the original zip file
+                        firstExtracted = file
+                        ignore.append(firstExtracted)  # Do not remove the original zip file
                     return extract_nested_zip(root)  # In order to recursively unzip files, must restart os.walk
+
                 except Exception as e:
+                    ignore.append(file)
                     print(e)
 
 
@@ -81,14 +88,14 @@ def print_to_pdf(outname, data):
             out.write(f"{line}\n")
         out.write(r"\end{document}\n")
 
-        # Convert to PDF
-        os.system(f"pdflatex {outname}")
+    # Convert to PDF
+    os.system(f"pdflatex {outname}")
 
     # Delete LaTeX file
     os.remove(outname)
 
 
-def grade(dir):
+def grade(dir, pdf):
     gradefile = open(f'{dir}/grades.csv', 'r').readlines()
 
     # Harvest titles and marks
@@ -184,11 +191,21 @@ if __name__ == "__main__":
     else:
         directory = "."
 
+    os.chdir(directory)
     if not len(sys.argv) > 1 or sys.argv[1].lower() not in ["unzip", "create", "grade"]:
         help()
     elif sys.argv[1].lower() == "unzip":
         extract_nested_zip(directory)
+        print(f"{filesUnzipped} files unzipped!")
     elif sys.argv[1].lower() == "create":
         create_file(directory)
     else:
-        grade(directory)
+        while True:
+            pdf = input("Do you wish to print PDFs? You must have a Latex distribution installed (y or n):").lower()
+            if pdf == 'y':
+                pdf = True
+                break
+            elif pdf == 'n':
+                pdf = False
+                break
+        grade(directory, pdf)
