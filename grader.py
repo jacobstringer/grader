@@ -2,26 +2,29 @@
 Authored by Jacob Stringer
 Call with 'python {filename}' to get further usage information"""
 
-# Version 0.1.1
+# Version 0.3.0 - Implements the functionality for creating PDFs (via Latex)
+# Version 0.2.0 - Includes options to create a grading file for a subset of (first) names. Deletes other files.
+# Version 0.1.1 - Got the recursive unzipping (for .zip files) working
 
-import os.path, os, re, sys, zipfile, io, rarfile, unrar
+import os.path, os, re, sys, zipfile, csv
 
 # Global variables
-sep = ';'
+sep = ','
 firstExtracted = None
 ignore = []
 filesUnzipped = 0
 
 
 # Script functions
-def create_file(dir):
-    stp = re.compile(r'\w+ \w+_\d+_assignsubmission_file_')
+def create_file(dir, first = None, last = None):
+    stp = re.compile(r'.+_\d+_assignsubmission_file_')
+    comment = re.compile(r'.+_\d+_assignsubmission_onlinetext_')
     with open(f'{dir}/grades.csv', 'w') as f:
         f.write(f"sep={sep}\n")
         marks = []
 
         # Adds in titles
-        f.write(input("What is the name of this paper? e.g. 'Intro to Programming': ") + ", " + input(
+        f.write(input("What is the name of this paper? e.g. '158.100': ") + ": " + input(
             "Which assessment is this? e.g. 'Assignment 1': "))
         title = input(
             "Write a title heading for a section you are marking, e.g. 'Depth First Search'. Write 'n' when done: ")
@@ -41,12 +44,26 @@ def create_file(dir):
         f.write("\n")
 
         # Adds in student names
-        for a in next(os.walk(dir))[1]:
-            print(a)
+        root, folders, files = next(os.walk(dir))
+        students = []
+        for a in folders+files:
             student = stp.findall(a)
             if student:
-                f.write(student[0])
-                f.write("\n")
+                if student[0] not in students:
+                    if not first or not last or first <= student[0].split(" ")[0].lower() <= last:
+                        students.append(student[0])
+
+            # Remove files that aren't needed (if a student range is specified)
+            if first and last and not first <= a.split(" ")[0].lower() <= last and (student or comment.findall(a)):
+                try:
+                    if os.path.isdir(a):
+                        os.rmdir(a)
+                    elif os.path.isfile(a):
+                        os.remove(a)
+                except Exception as e:
+                    print(e)
+
+        f.write("\n".join(sorted(students, key=lambda x: x.lower())))
 
 
 def extract_nested_zip(folder):
@@ -75,109 +92,138 @@ def extract_nested_zip(folder):
 
 # Uses LaTeX for formatting, and then converts to PDF. Finally, deletes LaTeX file.
 def print_to_pdf(outname, data):
+    # data = list(map(str.strip, data))
+    os.chdir("./_marks")
+
     with open(outname, 'w') as out:
         # Preamble
-        out.write(r"\documentclass{article}\n")
-        out.write(r"\title{" + data[0] + "}\n")
-        out.write(r"\author{" + data[1] + "}\n")
+        out.write(f"""\\documentclass{{report}}
+\\begin{{document}}
+\\section*{{{data[0]}}}
+\\subsection*{{{data[1]}}}""")
 
-        # Document
-        out.write(r"\begin{document}\n")
-        out.write(r"\maketitle\n")
         for line in data[2:]:
-            out.write(f"{line}\n")
-        out.write(r"\end{document}\n")
+            out.write(f"{line}\\newline{{}}")
+        out.write(r"\end{document}" + "\n")
 
     # Convert to PDF
-    os.system(f"pdflatex {outname}")
+    os.system(f'pdflatex "{outname}"')
 
     # Delete LaTeX file
     os.remove(outname)
+    os.remove(outname.replace(".tex", ".aux"))
+    os.remove(outname.replace(".tex", ".log"))
+    os.chdir("..")
 
 
 def grade(dir, pdf):
-    gradefile = open(f'{dir}/grades.csv', 'r').readlines()
-
-    # Harvest titles and marks
-    Titles = list(map(str.strip, gradefile[0].split(sep)))
-    fullmarks = []
-    for mark in gradefile[1].split(sep):
-        if re.search(r'Mark:\s*\d+', mark, re.I):
-            fullmarks.append(int(mark.split("Mark:")[1]))
-    lateind = Titles.index("Days Late")
-    generalind = Titles.index("General Comment")
-
     # For stats
-    cumscore = 0
-    nstudents = 0
-    nstudentsabove20percent = 0
-    cumscoreabove20percent = 0
-    topmark = sum(fullmarks)
-    percentile20 = topmark / 5
+    scores = []
 
     # Make marks folder for files. On later runs, any old files are cleaned up first.
     if not os.path.exists(f"{dir}/_marks"):
         os.mkdir(f"{dir}/_marks")
     else:
-        for file in next(os.walk(f"{dir}/_marks"))[2]:
-            os.remove(file)
+        root, b, files = next(os.walk(f"{dir}/_marks"))
+        for file in files:
+            os.remove(os.path.join(root, file))
 
-    # Process marks
-    for line in gradefile[2:]:
-        line = list(map(str.strip, line.split(sep)))
-        print(line)
-        name = line[0]
+    # Get file
+    gradefile = open(f'{dir}/grades.csv', 'r').readlines()
+    with open(f'{dir}/grades.csv', 'r') as csvFile:
+        csvData = csv.reader(csvFile)
+        lineNum = -1
 
-        marks = 0
-        msg = []
-        msg.append(Titles[0])  # Paper name and assignment name
-        msg.append(name.split("_")[0] + "\n")  # First and last name of student
+        # Process data
+        for line in csvData:
+            lineNum += 1
+            # Get titles
+            if lineNum == 0:
+                titles = line
+                lateind = titles.index("Days Late")
+                generalind = titles.index("General Comment")
 
-        # Process student marks
-        for i in range(1, lateind):
-            if i == 0: continue  # Name
-            if not line[i]: continue  # Empty cell
-            if Titles[i]:
-                marks += int(line[i])
-                msg.append(f'{Titles[i]}: {line[i]}/{fullmarks[i // 2]}')
+            # Get marks information
+            elif lineNum == 1:
+                fullmarks = []
+                for mark in gradefile[1].split(sep):
+                    if re.search(r'Mark:\s*\d+', mark, re.I):
+                        fullmarks.append(int(mark.split("Mark:")[1]))
+                late_penalty_per_day = int(line[lateind])
+                highest_score = sum(fullmarks)
+
+            # Process each line
             else:
-                msg.append(line[i] + "\n")
+                name_and_submission = line[0]
+                if name_and_submission == "".join(line):
+                    print("Skipping {} due to no information".format(name_and_submission))
+                    continue
 
-        # Late, General Comments and Marks
-        marks = max(0, marks - int(line[lateind]) * int(gradefile[1][lateind]))
-        msg.append(f'\nDue to being {line[lateind]} days late, a {int(line[lateind]) * int(gradefile[1][lateind])}% point penalty has been applied.')
-        msg.append(f'\n{Titles[generalind]}: {line[generalind]}')
+                marks = 0
+                msg = [titles[0], name_and_submission.split("_")[0]]
 
-        marks = round(marks, 1)
-        msg.append(f'\nTotal mark: {marks}/{fullmarks}')
+                # Process student marks
+                for i in range(1, lateind):
+                    if titles[i]:  # Marked column
+                        if not line[i]:  # Empty cell
+                            print("Warning: {} has no mark for {}".format(name_and_submission, titles[i]))
+                            msg.append(f'{titles[i]}: 0/{fullmarks[i // 2]}')
+                            msg.append("Missing")
+                        else:
+                            marks += float(line[i])
+                            msg.append(f'{titles[i]}: {line[i]}/{fullmarks[i // 2]}')
+                    else:  # Comment column
+                        msg.append(line[i])
+                        if line[i]:
+                            msg.append("")
 
-        # Create feedback file
-        with open(f'{dir}/_marks/{line[0]}{line[0].split("_")[0]}_{marks}.txt', 'w') as out:
-            msg = [i + "\n" for i in msg]
-            out.writelines(msg)
+                # Late, General Comments and Marks
+                if line[lateind] and float(line[lateind]) > 0:
+                    marks = max(0, marks - float(line[lateind]) * late_penalty_per_day)
+                    msg.append(f'Due to being {line[lateind]} days late, a {float(line[lateind]) * late_penalty_per_day}% point penalty has been applied.')
+                    msg.append("")
+                if line[generalind]:
+                    msg.append(titles[generalind])
+                    msg.append(line[generalind])
+                    msg.append("")
 
-        # Stats
-        cumscore += marks
-        nstudents += 1
-        if marks > percentile20:
-            cumscoreabove20percent += marks
-            nstudentsabove20percent += 1
+                marks = round(marks, 1)
+                if marks - round(marks,0) < 0.1:
+                    marks = int(marks)
+                msg.append(f'Total mark: {marks}/{highest_score}')
+
+                # Create feedback file
+                if pdf:
+                    outfile = f'{line[0]}{line[0].split("_")[0]}_{marks}.tex'
+                    print_to_pdf(outfile, msg)
+                else:
+                    outfile = f'{dir}/_marks/{line[0]}{line[0].split("_")[0]}_{marks}.txt'
+                    with open(outfile, 'w') as out:
+                        msg = [i + "\n" for i in msg]
+                        out.writelines(msg)
+
+                # Stats
+                scores.append(marks)
 
     # Zip feedback files
-    with zipfile.ZipFile(f'{dir}/marks.zip', 'w') as zipout:
-        for file in next(os.walk(f"{dir}/_marks"))[2]:
+    os.chdir("./_marks")
+    root, b, files = next(os.walk("."))
+    with zipfile.ZipFile('marks.zip', 'w') as zipout:
+        for file in files:
             zipout.write(file)
+    os.chdir("..")
 
-    print("Average mark: ", cumscore / nstudents)
-    print("Average mark for those above 20%: ", cumscoreabove20percent / nstudentsabove20percent)
+    # Statistics
+    print(f"Average mark: {sum(scores) / len(scores):0.2}\tAs percentage: {int(sum(scores) / len(scores) * 100 / highest_score)}%")
+    print(f"Number of students below 50%: {len([x for x in scores if x/highest_score < 0.5])}/{len(scores)}")
 
 
 def help():
     print("""  
-UNZIP - Recursively unzips all .zip files within the listed folder (or in the current dir)
+UNZIP - Recursively unzips all .zip files within the listed folder (or in the current dir).
 python grader.py unzip <dir with zip file(s)>
 
-CREATE - Creates file to start grading
+CREATE - Creates file to start grading. Includes an option to specify starting and ending first names (if splitting marking). Will delete files outside that range.
 python grader.py create <dir with unzipped student submissions>
 
 GRADE
@@ -198,7 +244,12 @@ if __name__ == "__main__":
         extract_nested_zip(directory)
         print(f"{filesUnzipped} files unzipped!")
     elif sys.argv[1].lower() == "create":
-        create_file(directory)
+        if input("Are you marking the entire set? (y/n)").lower() == "n":
+            first = input("Please enter the first name you are marking: ").lower()
+            last = input("Please enter the last name you are marking: ").lower()
+            create_file(directory, first, last)
+        else:
+            create_file(directory)
     else:
         while True:
             pdf = input("Do you wish to print PDFs? You must have a Latex distribution installed (y or n):").lower()
