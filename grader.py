@@ -188,7 +188,7 @@ def grade(dir, pdf):
                     msg.append("")
 
                 marks = round(marks, 1)
-                if marks - round(marks,0) < 0.1:
+                if abs(marks - round(marks,0)) < 0.1:
                     marks = int(marks)
                 msg.append(f'Total mark: {marks}/{highest_score}')
 
