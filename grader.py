@@ -2,6 +2,7 @@
 Authored by Jacob Stringer
 Call with 'python {filename}' to get further usage information"""
 
+# Version 0.3.1 - Fixed bug affecting decimal scores being rounded incorrectly
 # Version 0.3.0 - Implements the functionality for creating PDFs (via Latex)
 # Version 0.2.0 - Includes options to create a grading file for a subset of (first) names. Deletes other files.
 # Version 0.1.1 - Got the recursive unzipping (for .zip files) working
