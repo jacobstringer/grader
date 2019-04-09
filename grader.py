@@ -187,9 +187,11 @@ def grade(dir, pdf):
                     msg.append(line[generalind])
                     msg.append("")
 
-                marks = round(marks, 1)
-                if abs(marks - round(marks,0)) < 0.1:
+                
+                if abs(marks - round(marks,0)) < 0.01:
                     marks = int(marks)
+                else:
+                    marks = round(marks, 1)
                 msg.append(f'Total mark: {marks}/{highest_score}')
 
                 # Create feedback file
